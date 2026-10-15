@@ -16,7 +16,7 @@ export default {
       },
       fontFamily: {
         display: ['Outfit', 'sans-serif'],
-        sans: ['Source Sans 3', 'sans-serif'],
+        sans: ['"Source Sans 3"', 'sans-serif'],
       },
     },
   },

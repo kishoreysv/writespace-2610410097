@@ -48,7 +48,7 @@ async function login(page, role = 'user') {
   await page.getByRole('button', { name: 'Login', exact: true }).click();
   if (role === 'admin') {
     await expect(page).toHaveURL(/\/admin$/);
-    await page.getByRole('link', { name: 'All Blogs', exact: true }).click();
+    await page.getByRole('navigation', { name: 'Account navigation' }).getByRole('link', { name: 'All Blogs', exact: true }).click();
   }
   await expect(page).toHaveURL(/\/blogs$/);
 }
@@ -96,7 +96,13 @@ test('UI login, all newest-first cards, full reader, persisted reload and back t
   await expect(page.getByRole('banner')).toHaveCount(1);
 });
 
-for (const { width, columns } of [{ width: 390, columns: 1 }, { width: 768, columns: 2 }, { width: 1024, columns: 3 }]) {
+for (const { width, columns } of [
+  { width: 390, columns: 1 },
+  { width: 640, columns: 1 },
+  { width: 767, columns: 1 },
+  { width: 768, columns: 2 },
+  { width: 1024, columns: 3 },
+]) {
   test(`real registration and reader journey at ${width}px uses ${columns} collection columns`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await seed(page);

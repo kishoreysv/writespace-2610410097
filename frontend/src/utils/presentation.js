@@ -9,6 +9,22 @@ export function safeText(value, fallback = '') {
   return typeof value === 'string' ? value : fallback;
 }
 
+/** Resolve a display-only author role from the fixed admin ID or current local users.
+ * Never infer roles from names, mutate records, or grant authorization.
+ * @param {*} post Potential post record with an authorId.
+ * @param {*} users Current local user records; deleted or unknown authors remain writers.
+ * @returns {'Admin'|'user'} Role expected by the shared avatar.
+ */
+export function resolveAuthorRole(post, users) {
+  const authorId = post?.authorId;
+  if (authorId === 'admin') return 'Admin';
+  if (typeof authorId !== 'string' || !authorId.trim() || !Array.isArray(users)) return 'user';
+  const author = users.find((user) => (
+    user !== null && typeof user === 'object' && !Array.isArray(user) && user.id === authorId
+  ));
+  return author?.role === 'admin' ? 'Admin' : 'user';
+}
+
 /** Convert a supported date to a sortable UTC timestamp; invalid dates sort last.
  * @param {*} value Date string.
  * @returns {number} Timestamp or negative infinity.

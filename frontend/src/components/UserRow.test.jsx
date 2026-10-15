@@ -89,6 +89,21 @@ it('omitted account uses safe empty metadata', () => {
   expect(screen.getByText('Unknown account')).toBeInTheDocument();
 });
 
+it('escapes markup usernames in text and delete labels without executable nodes or passwords', () => {
+  const username = '<img src=x onerror="alert(1)"><script>demo</script>';
+  const { container } = render(
+    <ul>
+      <UserRow account={{ ...account, username }} onDelete={vi.fn()} />
+    </ul>,
+  );
+  expect(screen.getByText(`@${username}`, { exact: true })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: `Delete ${username}`, exact: true })).toHaveAttribute('aria-label', `Delete ${username}`);
+  expect(container.querySelector('script, img, iframe, svg, [onerror], [onload]')).toBeNull();
+  expect(container.innerHTML).toContain('&lt;img');
+  expect(container.textContent).not.toContain(account.password);
+  expect(container.innerHTML).not.toContain(account.password);
+});
+
 it('escapes account markup and uses unknown date for invalid timestamps', () => {
   render(
     <ul>

@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import Home from './Home';
 import App from '../App';
-import { savePosts, getPosts } from '../utils/storage';
+import { savePosts, getPosts, saveUsers } from '../utils/storage';
 import * as storage from '../utils/storage';
 
 const writer = { userId: 'riley', username: 'riley', displayName: 'Riley', role: 'user' };
@@ -47,6 +47,30 @@ it('renders every post newest-first, with exact excerpts, dates, avatars and cyc
     expect(within(card).getByRole('img', { name: 'Writer avatar' })).toBeInTheDocument();
     expect(within(card).getByRole('link')).toHaveAttribute('href', `/blog/post-${day}`);
   });
+  expect(getPosts()).toEqual(records);
+});
+
+/** Resolve every collection author's role from one mount-time user read. */
+it('shows fixed and created admin avatars while unknown and deleted authors remain writers', () => {
+  const records = ['admin', 'created-admin', 'writer', 'unknown', 'deleted'].map((authorId) => ({
+    id: authorId, title: `By ${authorId}`, authorId, authorName: 'Admin',
+  }));
+  savePosts(records);
+  saveUsers([{ id: 'created-admin', role: 'admin' }, { id: 'writer', role: 'user' }]);
+  const usersRead = vi.spyOn(storage, 'getUsers');
+  const view = mount();
+  for (const [index, card] of screen.getAllByRole('article').entries()) {
+    const admin = index < 2;
+    const avatar = within(card).getByRole('img', { name: admin ? 'Admin avatar' : 'Writer avatar' });
+    expect(avatar).toHaveTextContent(admin ? '👑' : '📚');
+    expect(avatar).toHaveClass(admin ? 'bg-violet-600' : 'bg-indigo-500');
+  }
+  view.rerender(
+    <MemoryRouter initialEntries={['/blogs']} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Home />
+    </MemoryRouter>,
+  );
+  expect(usersRead).toHaveBeenCalledTimes(1);
   expect(getPosts()).toEqual(records);
 });
 

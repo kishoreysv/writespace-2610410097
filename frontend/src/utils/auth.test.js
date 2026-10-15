@@ -1,5 +1,7 @@
 /** @module auth-tests Verify local credentials, persisted transitions and fail-closed permissions. */
 import { describe, expect, it, vi } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import {
   authenticate, registerWriter, getSession, setSession, clearSession, logout,
   isValidSession, canAccessRoute, canMutatePost,
@@ -175,6 +177,52 @@ describe('credential resolution', () => {
 });
 
 describe('writer registration', () => {
+  it.each([256, 4096])('round trips %i-character identity fields without an artificial length limit', (length) => {
+    const displayName = 'D'.repeat(length);
+    const username = 'Writer'.repeat(Math.ceil(length / 6)).slice(0, length);
+    const password = ` ${'p'.repeat(length)} `;
+    const result = registerWriter({ displayName: ` ${displayName} `, username: ` ${username} `, password, confirmPassword: password });
+    expect(result).toMatchObject({ ok: true, role: 'user', navigateTo: '/blogs', sessionEstablished: true });
+    const usersBytes = localStorage.getItem('writespace_users');
+    const users = JSON.parse(usersBytes);
+    expect(users).toHaveLength(1);
+    expect(users[0]).toEqual({ id: expect.any(String), createdAt: expect.any(String), displayName, username, password, role: 'user' });
+    const session = { userId: users[0].id, displayName, username, role: 'user' };
+    expect(result.session).toEqual(session);
+    expect(JSON.parse(localStorage.getItem('writespace_session'))).toEqual(session);
+    expect(getSession()).toEqual(session);
+    expect(clearSession()).toEqual({ ok: true });
+    expect(authenticate(username, password.trim())).toEqual({ ok: false, error: 'Invalid username or password.' });
+    expect(getSession()).toBeNull();
+    expect(authenticate(` ${username.toUpperCase()} `, password)).toEqual({ ok: true, session, role: 'user', navigateTo: '/blogs', sessionEstablished: true });
+    expect(getSession()).toEqual(session);
+    expect(JSON.parse(localStorage.getItem('writespace_session'))).toEqual(session);
+    expect(localStorage.getItem('writespace_users')).toBe(usersBytes);
+  });
+
+  it('keeps markup usernames literal, React-escaped, and consistent for matching and duplicates', () => {
+    const username = '<script>Demo</script>&"Writer"';
+    expect(registerWriter({ ...input, username: ` ${username} ` }).ok).toBe(true);
+    const usersBytes = localStorage.getItem('writespace_users');
+    const saved = JSON.parse(usersBytes)[0];
+    expect(saved.username).toBe(username);
+    const session = { userId: saved.id, username, displayName: 'Riley', role: 'user' };
+    expect(getSession()).toEqual(session);
+    const rendered = renderToStaticMarkup(createElement('span', null, getSession().username));
+    expect(rendered).toBe('<span>&lt;script&gt;Demo&lt;/script&gt;&amp;&quot;Writer&quot;</span>');
+    expect(rendered).not.toContain('<script>');
+    const sessionBytes = localStorage.getItem('writespace_session');
+    expect(registerWriter({ ...input, username: ` ${username.toUpperCase()} ` })).toMatchObject({ ok: false, fieldErrors: { username: 'Username is already taken.' } });
+    expect(localStorage.getItem('writespace_users')).toBe(usersBytes);
+    expect(localStorage.getItem('writespace_session')).toBe(sessionBytes);
+    expect(clearSession()).toEqual({ ok: true });
+    expect(authenticate('&lt;script&gt;Demo&lt;/script&gt;&amp;&quot;Writer&quot;', input.password)).toEqual({ ok: false, error: 'Invalid username or password.' });
+    expect(getSession()).toBeNull();
+    expect(authenticate(` ${username.toUpperCase()} `, input.password)).toMatchObject({ ok: true, session, navigateTo: '/blogs' });
+    expect(getSession()).toEqual(session);
+    expect(localStorage.getItem('writespace_users')).toBe(usersBytes);
+  });
+
   it('generates UUID and ISO date, trims names, preserves exact password and saves user then session', () => {
     seedUsers([null, { ...account, id: 'existing', username: 'someone' }]);
     const result = registerWriter(input);

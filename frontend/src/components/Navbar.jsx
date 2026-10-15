@@ -1,5 +1,5 @@
 /** @module Navbar Local role navigation with explicitly activated logout only. */
-import { useState } from 'react';
+import { startTransition, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { PublicNavbar } from './PublicNavbar';
@@ -30,9 +30,12 @@ export function Navbar({ session = null, onSessionChange }) {
       setError(result.error);
       return;
     }
-    closeMenus();
-    onSessionChange(null);
-    navigate(result.navigateTo);
+    // Match the router's transition so guards never see a cleared session at the old protected path.
+    startTransition(() => {
+      closeMenus();
+      onSessionChange(null);
+      navigate(result.navigateTo);
+    });
   }
 
   /** Close the account disclosure on Escape and restore its trigger focus.

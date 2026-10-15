@@ -5,8 +5,8 @@ import { ProtectedRoute } from '../components/ProtectedRoute';
 import { canMutatePost } from '../utils/auth';
 import { deletePost } from '../utils/posts';
 import { Avatar } from '../components/Avatar';
-import { getPosts } from '../utils/storage';
-import { formatDate, safeText } from '../utils/presentation';
+import { getPosts, getUsers } from '../utils/storage';
+import { formatDate, resolveAuthorRole, safeText } from '../utils/presentation';
 
 /** Read local posts and expose explicit controls only for a freshly authorized identity.
  * @param {{session?: object|null}} props App-owned identity, rechecked during deletion.
@@ -16,11 +16,13 @@ export default function ReadBlog({ session = null }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
+  const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
 
-  /** Read without repairing storage when the requested route changes. */
+  /** Read posts and author roles without repairing storage when the route changes. */
   useEffect(() => {
     setPosts(getPosts());
+    setUsers(getUsers());
     setError('');
   }, [id]);
 
@@ -42,8 +44,7 @@ export default function ReadBlog({ session = null }) {
       && typeof entry.id === 'string' && entry.id === id
     ))
     : null;
-  // Stored records identify the fixed administrator by authorId, not a display-name guess.
-  const authorRole = post?.authorId === 'admin' ? 'Admin' : 'user';
+  const authorRole = resolveAuthorRole(post, users);
 
   return (
     <main id="main-content" className="mx-auto max-w-3xl px-6 py-12 md:py-16">

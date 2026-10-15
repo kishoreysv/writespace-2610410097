@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import { Navbar } from './Navbar';
+import App from '../App';
 import { setSession, getSession } from '../utils/auth';
 
 const writer = { userId: 'w', username: 'riley', displayName: 'Riley', role: 'user' };
@@ -115,6 +116,51 @@ it('explicit logout removes only session, updates App state and navigates Home',
   expect(screen.getByLabelText('Location').textContent).toBe('/');
   expect(localStorage.getItem('writespace_users')).toBe('[{"id":"account"}]');
   expect(localStorage.getItem('writespace_posts')).toBe('[{"id":"post"}]');
+});
+
+/** Observe the real App router without replacing its guarded routes or session state.
+ * @returns {import('react').ReactElement} Current router pathname.
+ */
+function AppLocation() {
+  const location = useLocation();
+  return <output aria-label="App location">{location.pathname}</output>;
+}
+
+it.each([
+  { session: writer, path: '/blogs', heading: 'All Blogs', identity: 'writer' },
+  { session: admin, path: '/admin', heading: 'Admin Dashboard', identity: 'fixed admin' },
+])('real App $identity logout leaves its protected page at public root, not Login', async ({ session, path, heading }) => {
+  const users = JSON.stringify([
+    { id: writer.userId, username: writer.username, displayName: writer.displayName, role: writer.role,
+      password: 'demo-password', createdAt: '2025-01-01T00:00:00.000Z' },
+  ]);
+  const posts = JSON.stringify([
+    { id: 'post', title: 'Preserved story', content: 'Keep this local writing.', authorId: writer.userId,
+      authorName: writer.displayName, createdAt: '2025-01-02T00:00:00.000Z', updatedAt: '2025-01-02T00:00:00.000Z' },
+  ]);
+  localStorage.setItem('writespace_users', users);
+  localStorage.setItem('writespace_posts', posts);
+  expect(setSession(session).ok).toBe(true);
+  render(
+    <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <App />
+      <AppLocation />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('heading', { name: heading, exact: true })).toBeInTheDocument();
+  expect(screen.getByLabelText('App location')).toHaveTextContent(path);
+  await userEvent.click(screen.getByRole('button', { name: new RegExp(session.displayName) }));
+  expect(getSession()).toEqual(session);
+  await userEvent.click(screen.getByRole('button', { name: 'Logout' }));
+  expect(getSession()).toBeNull();
+  expect(localStorage.getItem('writespace_session')).toBeNull();
+  expect(screen.getByLabelText('App location').textContent).toBe('/');
+  expect(screen.getByRole('heading', { name: 'WriteSpace', exact: true })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Login', exact: true })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Start Reading' })).toHaveAttribute('href', '/login');
+  expect(screen.queryByRole('button', { name: 'Logout' })).not.toBeInTheDocument();
+  expect(localStorage.getItem('writespace_users')).toBe(users);
+  expect(localStorage.getItem('writespace_posts')).toBe(posts);
 });
 
 it.each(['removeItem', 'property'])('retains view and App session on logout %s failure and allows explicit retry', async (failure) => {

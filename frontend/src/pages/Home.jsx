@@ -2,20 +2,23 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BlogCard } from '../components/BlogCard';
-import { getPosts } from '../utils/storage';
-import { newestFirst } from '../utils/presentation';
+import { getPosts, getUsers } from '../utils/storage';
+import { newestFirst, resolveAuthorRole } from '../utils/presentation';
 
 /** Read all post records on mount and display a sorted copy.
  * @returns {import('react').ReactElement} Collection or exact empty state.
  */
 export default function Home() {
   const [posts, setPosts] = useState([]);
+  const [users, setUsers] = useState([]);
 
+  /** Read posts and author roles once on mount without changing stored records. */
   useEffect(() => {
     const records = getPosts().filter((post) => (
       post !== null && typeof post === 'object' && !Array.isArray(post)
     ));
     setPosts(newestFirst(records));
+    setUsers(getUsers());
   }, []);
 
   return (
@@ -26,7 +29,12 @@ export default function Home() {
       {posts.length > 0 ? (
         <section aria-label="Blog collection" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
           {posts.map((post, index) => (
-            <BlogCard key={index} post={post} index={index} />
+            <BlogCard
+              key={index}
+              post={post}
+              index={index}
+              authorRole={resolveAuthorRole(post, users)}
+            />
           ))}
         </section>
       ) : (

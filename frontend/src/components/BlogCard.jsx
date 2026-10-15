@@ -7,10 +7,10 @@ import { formatDate, safeText } from '../utils/presentation';
 const accents = ['border-indigo-500', 'border-violet-500', 'border-pink-500', 'border-teal-500'];
 
 /** Render up to 120 content characters, escaped by React, with an actual reader link.
- * @param {{post?: object|null, index?: number}} props Stored post and list index.
+ * @param {{post?: object|null, index?: number, authorRole?: string}} props Post, accent index and caller-resolved display role.
  * @returns {import('react').ReactElement} Article preview.
  */
-export function BlogCard({ post = null, index = 0 }) {
+export function BlogCard({ post = null, index = 0, authorRole = 'user' }) {
   const entry = post || {};
   const id = safeText(entry.id);
   const title = safeText(entry.title, 'Untitled post');
@@ -36,7 +36,7 @@ export function BlogCard({ post = null, index = 0 }) {
         {safeText(entry.content).slice(0, 120)}
       </p>
       <div className="flex items-center gap-3 text-sm font-semibold">
-        <Avatar role="user" />
+        <Avatar role={authorRole} />
         <span>
           {safeText(entry.authorName, 'Unknown author')}
         </span>
@@ -49,4 +49,5 @@ BlogCard.propTypes = {
   // Browser data may be malformed. Presentation validates fields rather than dropping records.
   post: PropTypes.object,
   index: PropTypes.number,
+  authorRole: PropTypes.oneOf(['Admin', 'user']),
 };

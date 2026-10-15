@@ -89,12 +89,13 @@ function mountApp(path) {
   );
 }
 
-it.each([[writer, '/blogs'], [admin, '/admin']])('restores $role before rendering guest-only login', (session, home) => {
+it.each([[writer, '/blogs', 'All Blogs'], [admin, '/admin', 'Admin Dashboard']])('restores $role before rendering guest-only login', (session, home, heading) => {
   setSession(session);
   mountApp('/login');
   expect(screen.queryByRole('heading', { name: 'Login' })).not.toBeInTheDocument();
   expect(screen.getByLabelText('Location').textContent).toBe(home);
-  expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: heading, level: 1 })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Page not found' })).not.toBeInTheDocument();
   expect(screen.getByRole('navigation', { name: 'Account navigation' })).toBeInTheDocument();
   expect(getSession()).toEqual(session);
 });

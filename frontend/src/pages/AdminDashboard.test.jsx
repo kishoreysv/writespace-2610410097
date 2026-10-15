@@ -69,6 +69,25 @@ it('shows four exact metrics with distinct explanatory formulas and no render-ti
   expect(localStorage.getItem('writespace_users')).toBe(usersBefore);
 });
 
+it('resolves fixed and created admin card avatars by author ID, never by authorName', () => {
+  const fixed = { ...post, id: 'fixed-post', title: 'Fixed admin story', authorId: 'admin', authorName: 'Unrelated fixed name' };
+  const created = { ...post, id: 'created-post', title: 'Created admin story', authorId: 'local-admin', authorName: 'Unrelated created name' };
+  const namedWriter = { ...post, authorName: 'Admin' };
+  const before = seed([fixed, created, namedWriter], [account, { ...account, id: 'local-admin', username: 'local-admin', role: 'admin' }]);
+  const usersBefore = localStorage.getItem('writespace_users');
+  mount({ app: true });
+  for (const title of ['Fixed admin story', 'Created admin story']) {
+    const card = screen.getByRole('link', { name: title, exact: true }).closest('article');
+    expect(within(card).getByRole('img', { name: 'Admin avatar' })).toHaveTextContent('👑');
+    expect(within(card).queryByRole('img', { name: 'Writer avatar' })).not.toBeInTheDocument();
+  }
+  const writerCard = screen.getByRole('link', { name: 'Writer story', exact: true }).closest('article');
+  expect(within(writerCard).getByRole('img', { name: 'Writer avatar' })).toHaveTextContent('📚');
+  expect(within(writerCard).queryByRole('img', { name: 'Admin avatar' })).not.toBeInTheDocument();
+  expect(localStorage.getItem('writespace_posts')).toBe(before);
+  expect(localStorage.getItem('writespace_users')).toBe(usersBefore);
+});
+
 it('caps actual BlogCards at five newest complete posts while counting all seven valid posts', () => {
   const posts = Array.from({ length: 7 }, (_, index) => ({ ...post, id: `p${index}`, title: `Story ${index}`, createdAt: `2025-01-0${index + 1}T00:00:00.000Z` }));
   const before = seed([...posts, null, {}, { ...post, title: ' ' }]);
@@ -129,32 +148,37 @@ it('cancelled post deletion leaves persisted and displayed state unchanged', asy
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-it('admin deletes another author post, requerying fresh records and updating counters only after save', async () => {
+it('admin deletes another author post from fresh records and reaches the real All Blogs collection only after save', async () => {
   seed();
-  mount();
+  mount({ app: true });
   const added = { ...post, id: 'later', title: 'Later writer post' };
   savePosts([post, added]);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
   expect(getPosts()).toEqual([added]);
+  expect(screen.getByRole('heading', { name: 'All Blogs', exact: true })).toBeInTheDocument();
+  const collection = screen.getByRole('region', { name: 'Blog collection' });
+  expect(within(collection).getAllByRole('article')).toHaveLength(1);
   expect(screen.queryByRole('link', { name: 'Writer story', exact: true })).not.toBeInTheDocument();
-  expect(screen.getByRole('link', { name: 'Later writer post', exact: true })).toBeInTheDocument();
-  expect(within(screen.getByRole('region', { name: 'Total Posts' })).getByText('1')).toBeInTheDocument();
+  expect(within(collection).getByRole('link', { name: 'Later writer post', exact: true })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Admin Dashboard' })).not.toBeInTheDocument();
 });
 
-it('successful final deletion shows the empty state and zero posts', async () => {
+it('successful final deletion reaches All Blogs with the real collection empty state and no posts', async () => {
   seed();
-  mount();
+  mount({ app: true });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
   expect(getPosts()).toEqual([]);
-  expect(screen.getByText('No posts yet — check back soon!')).toBeInTheDocument();
-  expect(within(screen.getByRole('region', { name: 'Total Posts' })).getByText('0')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'All Blogs', exact: true })).toBeInTheDocument();
+  expect(screen.getByText('No blogs yet. Be the first to write one!')).toBeInTheDocument();
+  expect(screen.queryAllByRole('article')).toHaveLength(0);
+  expect(screen.queryByRole('heading', { name: 'Admin Dashboard' })).not.toBeInTheDocument();
 });
 
-it('failed post write leaves list/count unchanged, reports an alert and clears it after a later successful delete', async () => {
+it('failed post write stays on dashboard with list/count unchanged, then a successful retry reaches All Blogs without an alert', async () => {
   const before = seed();
-  mount();
+  mount({ app: true });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   const setter = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
   await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
@@ -162,23 +186,41 @@ it('failed post write leaves list/count unchanged, reports an alert and clears i
   expect(localStorage.getItem('writespace_posts')).toBe(before);
   expect(screen.getByRole('link', { name: 'Writer story', exact: true })).toBeInTheDocument();
   expect(within(screen.getByRole('region', { name: 'Total Posts' })).getByText('1')).toBeInTheDocument();
+  expect(screen.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'All Blogs', exact: true })).not.toBeInTheDocument();
   setter.mockRestore();
   await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
   expect(getPosts()).toEqual([]);
+  expect(screen.getByRole('heading', { name: 'All Blogs', exact: true })).toBeInTheDocument();
+  expect(screen.getByText('No blogs yet. Be the first to write one!')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-it.each(['session', 'missing', 'invalid', 'ambiguous'])('handler-time %s change rejects deletion and leaves displayed list as-is', async (change) => {
+it('stale admin session rejects confirmed deletion and reaches real All Blogs without writing posts', async () => {
+  const before = seed();
+  mount({ app: true });
+  setSession(writer);
+  const setter = vi.spyOn(Storage.prototype, 'setItem');
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(screen.getByRole('heading', { name: 'All Blogs', exact: true })).toBeInTheDocument();
+  expect(screen.queryByRole('heading', { name: 'Admin Dashboard', exact: true })).not.toBeInTheDocument();
+  expect(within(screen.getByRole('region', { name: 'Blog collection' })).getByRole('link', { name: 'Writer story', exact: true })).toBeInTheDocument();
+  expect(localStorage.getItem('writespace_posts')).toBe(before);
+  expect(setter).not.toHaveBeenCalled();
+});
+
+it.each(['missing', 'invalid', 'ambiguous'])('handler-time %s change rejects deletion and leaves displayed list as-is', async (change) => {
   seed();
   mount();
   vi.spyOn(window, 'confirm').mockReturnValue(true);
-  if (change === 'session') setSession(writer);
   if (change === 'missing') savePosts([]);
   if (change === 'invalid') savePosts([{ ...post, title: '' }]);
   if (change === 'ambiguous') savePosts([post, post]);
   const before = localStorage.getItem('writespace_posts');
   await userEvent.click(screen.getByRole('button', { name: 'Delete Writer story' }));
-  expect(screen.getByRole('alert')).toHaveTextContent(change === 'session' ? 'not authorized' : change === 'missing' ? 'Post not found' : 'Invalid post');
+  expect(screen.getByRole('alert')).toHaveTextContent(change === 'missing' ? 'Post not found' : 'Invalid post');
   expect(screen.getByRole('link', { name: 'Writer story', exact: true })).toBeInTheDocument();
   expect(localStorage.getItem('writespace_posts')).toBe(before);
 });

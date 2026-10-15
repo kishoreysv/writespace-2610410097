@@ -1,6 +1,6 @@
 /** @module presentation-tests Ordering, UTC formatting and safe primitive display. */
 import { describe, expect, it } from 'vitest';
-import { newestFirst, formatDate, safeText } from './presentation';
+import { newestFirst, formatDate, resolveAuthorRole, safeText } from './presentation';
 
 /** Verify immutable chronological ordering and stable malformed-date handling. */
 describe('newestFirst', () => {
@@ -26,6 +26,48 @@ describe('newestFirst', () => {
     expect(newestFirst([])).toEqual([]);
     const source = [{ createdAt: '' }, { createdAt: ' ' }, { createdAt: 5 }, 'text'];
     expect(newestFirst(source)).toEqual(source);
+  });
+});
+
+/** Verify display roles use exact author IDs and current users, never display names. */
+describe('resolveAuthorRole', () => {
+  /** Fixed admin remains an admin without a corresponding stored account. */
+  it.each([[], null, undefined, {}, 'users'])('resolves the fixed admin with users %s', (users) => {
+    expect(resolveAuthorRole({ authorId: 'admin', authorName: 'Someone else' }, users)).toBe('Admin');
+  });
+
+  /** Created admins resolve via local lowercase roles, without mutating either input. */
+  it('resolves a matching created admin from immutable records', () => {
+    const post = Object.freeze({ authorId: 'created-admin', authorName: 'Riley' });
+    const users = Object.freeze([
+      null, 4, [],
+      Object.freeze({ id: 'other', role: 'user' }),
+      Object.freeze({ id: 'created-admin', role: 'admin' }),
+    ]);
+    expect(resolveAuthorRole(post, users)).toBe('Admin');
+    expect(post).toEqual({ authorId: 'created-admin', authorName: 'Riley' });
+    expect(users[4]).toEqual({ id: 'created-admin', role: 'admin' });
+  });
+
+  /** Unknown, deleted, malformed and writer authors all keep the non-admin treatment. */
+  it.each([
+    [{ authorId: 'writer', authorName: 'Admin' }, [{ id: 'writer', role: 'user' }]],
+    [{ authorId: 'unknown', authorName: 'Admin' }, [{ id: 'other', role: 'admin' }]],
+    [{ authorId: 'deleted', authorName: 'Admin' }, []],
+    [{ authorId: 'ADMIN' }, [{ id: 'admin', role: 'admin' }]],
+    [{ authorId: 'created-admin' }, [{ id: 'created-admin', role: 'Admin' }]],
+    [{ authorId: 'created-admin' }, [{ id: 'created-admin' }]],
+    [{ authorId: 'created-admin' }, null],
+    [{ authorId: 'created-admin' }, {}],
+    [{ authorId: 'created-admin' }, [null, false, 3, [], {}]],
+    [{ authorId: 1 }, [{ id: 1, role: 'admin' }]],
+    [{ authorId: '1' }, [{ id: 1, role: 'admin' }]],
+    [{ authorId: '' }, [{ id: '', role: 'admin' }]],
+    [{ authorId: ' ' }, [{ id: ' ', role: 'admin' }]],
+    [{ authorName: 'Admin' }, [{ role: 'admin' }]],
+    [null, []], [undefined, []], [4, []],
+  ])('returns user for unsupported author %j and users %j', (post, users) => {
+    expect(resolveAuthorRole(post, users)).toBe('user');
   });
 });
 

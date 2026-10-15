@@ -2,11 +2,24 @@
 import { StrictMode } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import LandingPage from './LandingPage';
 import App from '../App';
-import { getPosts, savePosts } from '../utils/storage';
+import { getPosts, savePosts, saveUsers } from '../utils/storage';
+import * as storage from '../utils/storage';
+
+/** Expose the actual router pathname without mocking App routes.
+ * @returns {import('react').ReactElement} Observable route location.
+ */
+function RouteLocation() {
+  const { pathname } = useLocation();
+  return (
+    <output aria-label="Current route">
+      {pathname}
+    </output>
+  );
+}
 
 /** Mount landing with caller-owned role state.
  * @param {object|null} session Valid session fixture.
@@ -49,6 +62,30 @@ it('caps newest previews at three with real card metadata and no storage changes
   expect(section.getAllByRole('heading', { level: 3 }).map((node) => node.textContent)).toEqual(['Post 4', 'Post 3', 'Post 2']);
   expect(section.getByRole('link', { name: 'Post 4' })).toHaveAttribute('href', '/blog/4');
   expect(section.getByText('Jan 04, 2025')).toBeInTheDocument();
+  expect(getPosts()).toEqual(records);
+});
+
+/** Previews resolve roles from one user read per mount, including deleted authors. */
+it.each([
+  ['admin', 'Admin avatar'], ['created-admin', 'Admin avatar'],
+  ['writer', 'Writer avatar'], ['unknown', 'Writer avatar'], ['deleted-admin', 'Writer avatar'],
+])('passes the current resolved role for preview author %s', (authorId, label) => {
+  const records = [{ id: 'role', title: 'Role preview', authorId, authorName: 'Admin' }];
+  savePosts(records);
+  saveUsers([{ id: 'created-admin', role: 'admin' }, { id: 'writer', role: 'user' }]);
+  const usersRead = vi.spyOn(storage, 'getUsers');
+  const view = mount();
+  const section = within(screen.getByRole('region', { name: 'Latest from the Blog' }));
+  const avatar = section.getByRole('img', { name: label });
+  const admin = label === 'Admin avatar';
+  expect(avatar).toHaveTextContent(admin ? '👑' : '📚');
+  expect(avatar).toHaveClass(admin ? 'bg-violet-600' : 'bg-indigo-500');
+  view.rerender(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <LandingPage />
+    </MemoryRouter>,
+  );
+  expect(usersRead).toHaveBeenCalledTimes(1);
   expect(getPosts()).toEqual(records);
 });
 
@@ -100,18 +137,25 @@ it('survives unavailable storage and malformed array entries', () => {
   expect(screen.getAllByText('Untitled post')).toHaveLength(3);
 });
 
-/** App intentionally serves only discovery and a truthful catch-all until later wiring. */
+/** Real App destinations serve identity forms; the guest collection redirects to login. */
 it.each([
-  ['Start Reading', '/login'], ['Get Started Free', '/register'], ['All Blogs', '/blogs'],
-])('navigates %s to the explicit unavailable destination, then home', async (name, path) => {
+  ['Start Reading', '/login', 'Login'],
+  ['Get Started Free', '/register', 'Register'],
+  ['All Blogs', '/blogs', 'Login'],
+])('navigates %s through real routes to %s, then home', async (name, path, heading) => {
   render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <App />
+      <RouteLocation />
     </MemoryRouter>,
   );
-  await userEvent.click(screen.getByRole('link', { name }));
-  expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
-  expect(screen.getByText(`Requested path: ${path}`)).toBeInTheDocument();
+  const link = screen.getByRole('link', { name });
+  expect(link).toHaveAttribute('href', path);
+  await userEvent.click(link);
+  expect(screen.getByRole('heading', { level: 1, name: heading, exact: true })).toBeInTheDocument();
+  expect(screen.getByLabelText('Current route').textContent).toBe(path === '/blogs' ? '/login' : path);
+  expect(screen.queryByRole('heading', { name: 'Page not found' })).not.toBeInTheDocument();
+  expect(window.localStorage.getItem('writespace_session')).toBeNull();
   await userEvent.click(screen.getByRole('link', { name: 'Back to Home' }));
   expect(screen.getByRole('heading', { level: 1, name: 'WriteSpace' })).toBeInTheDocument();
 });

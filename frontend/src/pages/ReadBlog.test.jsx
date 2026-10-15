@@ -6,7 +6,7 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import ReadBlog from './ReadBlog';
 import App from '../App';
-import { getPosts, savePosts } from '../utils/storage';
+import { getPosts, savePosts, saveUsers } from '../utils/storage';
 import { setSession } from '../utils/auth';
 
 const writer = { userId: 'riley', username: 'riley', displayName: 'Riley', role: 'user' };
@@ -50,12 +50,23 @@ it('renders the exact requested post with full whitespace-preserving content and
   expect(screen.queryByRole('button')).not.toBeInTheDocument();
 });
 
+/** Adapt avatars using fixed/current local identities, never a display-name guess. */
 it.each([
-  ['admin', 'Admin avatar'], ['riley', 'Writer avatar'], [undefined, 'Writer avatar'],
+  ['admin', 'Admin avatar'], ['created-admin', 'Admin avatar'],
+  ['riley', 'Writer avatar'], ['unknown', 'Writer avatar'],
+  ['deleted-admin', 'Writer avatar'], [undefined, 'Writer avatar'],
 ])('uses author identity %s for display-only avatar adaptation', (authorId, label) => {
-  savePosts([{ id: 'one', title: 'Avatar post', authorId, authorName: 'Admin' }]);
+  const post = { id: 'one', title: 'Avatar post', authorId, authorName: 'Admin' };
+  savePosts([post]);
+  saveUsers([{ id: 'created-admin', role: 'admin' }, { id: 'riley', role: 'user' }]);
   mount();
-  expect(screen.getByRole('img', { name: label })).toBeInTheDocument();
+  const avatar = screen.getByRole('img', { name: label });
+  const admin = label === 'Admin avatar';
+  expect(avatar).toHaveTextContent(admin ? '👑' : '📚');
+  expect(avatar).toHaveClass(admin ? 'bg-violet-600' : 'bg-indigo-500');
+  expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+  expect(getPosts()).toEqual(JSON.parse(JSON.stringify([post])));
 });
 
 it('escapes script and image markup across title, author and full content', () => {

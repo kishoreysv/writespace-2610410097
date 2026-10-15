@@ -1,17 +1,20 @@
 /** @module blog-card-tests Actual card links, excerpt boundaries and safe malformed display. */
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { BlogCard } from './BlogCard';
+import { resolveAuthorRole } from '../utils/presentation';
 
 /** Mount an actual card without introducing a second router.
  * @param {object|null} post Post fixture.
  * @param {number} index Accent position.
+ * @param {string|undefined} authorRole Caller-resolved display role, or the default.
+ * @returns {object} RTL mount handle.
  */
-function mount(post, index = 0) {
+function mount(post, index = 0, authorRole = undefined) {
   return render(
     <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <BlogCard post={post} index={index} />
+      <BlogCard post={post} index={index} authorRole={authorRole} />
     </MemoryRouter>,
   );
 }
@@ -25,6 +28,32 @@ it('renders a real preview with capped text and author metadata', () => {
   expect(screen.getByText('Jan 02, 2025')).toBeInTheDocument();
   expect(screen.getByText('Riley')).toBeInTheDocument();
   expect(screen.getByRole('img', { name: 'Writer avatar' })).toBeInTheDocument();
+});
+
+/** Caller-resolved roles drive exact source avatars without component storage reads. */
+it.each([
+  ['admin', 'Admin avatar'], ['created-admin', 'Admin avatar'],
+  ['writer', 'Writer avatar'], ['unknown', 'Writer avatar'], ['deleted-admin', 'Writer avatar'],
+])('renders the resolved avatar for %s without accessing storage', (authorId, label) => {
+  const post = { id: 'one', title: 'Role post', authorId, authorName: 'Admin' };
+  const users = [{ id: 'created-admin', role: 'admin' }, { id: 'writer', role: 'user' }];
+  const getter = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+    throw new Error('Cards must not read storage');
+  });
+  mount(post, 0, resolveAuthorRole(post, users));
+  const avatar = screen.getByRole('img', { name: label });
+  const admin = label === 'Admin avatar';
+  expect(avatar).toHaveTextContent(admin ? '👑' : '📚');
+  expect(avatar).toHaveClass(admin ? 'bg-violet-600' : 'bg-indigo-500');
+  expect(getter).not.toHaveBeenCalled();
+});
+
+/** Optional roles default conservatively, regardless of stored-looking author names. */
+it('defaults to a writer avatar when no caller role is supplied', () => {
+  mount({ id: 'one', authorId: 'created-admin', authorName: 'Admin' });
+  const avatar = screen.getByRole('img', { name: 'Writer avatar' });
+  expect(avatar).toHaveTextContent('📚');
+  expect(avatar).toHaveClass('bg-indigo-500');
 });
 
 /** Short/exact-boundary content is never padded with invented ellipses. */

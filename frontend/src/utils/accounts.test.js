@@ -38,6 +38,53 @@ it.each(['user', 'admin'])('creates a trimmed UUID/ISO $role account, preserves 
   expect(getSession()).not.toHaveProperty('password');
 });
 
+it.each(['user', 'admin'])('roundtrips long account fields without an artificial cap and keeps long passwords exact for %s', (role) => {
+  seed();
+  const displayName = 'Long name '.repeat(1000).trim();
+  const username = 'LongUsername'.repeat(1000);
+  const password = ` \t${'Exact password <>& '.repeat(1000)}\n `;
+  const result = createAccount(admin, { displayName: ` ${displayName} `, username: ` ${username} `, password, role });
+  expect(result.ok).toBe(true);
+  expect(result.account).not.toHaveProperty('password');
+  const saved = getUsers()[1];
+  expect(saved).toEqual({ ...result.account, displayName, username, password, role });
+  expect(JSON.parse(localStorage.getItem('writespace_users'))).toEqual([existing, saved]);
+  expect(authenticate(username.toLowerCase(), password.trim()).ok).toBe(false);
+  expect(getSession()).toEqual(admin);
+  expect(authenticate(username.toLowerCase(), password)).toMatchObject({ ok: true, navigateTo: role === 'admin' ? '/admin' : '/blogs' });
+  expect(getSession()).toEqual({ userId: saved.id, displayName, username, role });
+});
+
+it('reports quota failure for long account fields without partial data, success or credential echo', () => {
+  const before = seed();
+  const password = ` ${'long-exact-demo '.repeat(1000)} `;
+  const original = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+    if (key === 'writespace_users') throw new DOMException('Demo quota exceeded', 'QuotaExceededError');
+    return original.call(this, key, value);
+  });
+  const result = createAccount(admin, { displayName: 'Name'.repeat(3000), username: 'User'.repeat(3000), password, role: 'user' });
+  expect(result).toEqual({ ok: false, error: 'Unable to save local data. Check browser storage and try again.' });
+  expect(result).not.toHaveProperty('account');
+  expect(JSON.stringify(result)).not.toContain(password);
+  expect(localStorage.getItem('writespace_users')).toBe(before);
+  expect(getSession()).toEqual(admin);
+});
+
+it('preserves a markup username literally and rejects its trimmed case-insensitive duplicate without writes', () => {
+  seed();
+  const username = '<img src=x onerror="alert(1)"><script>demo</script>';
+  const result = createAccount(admin, { ...input, username: ` ${username} ` });
+  expect(result.ok).toBe(true);
+  expect(getUsers()[1]).toEqual({ ...result.account, username, password: input.password });
+  const before = localStorage.getItem('writespace_users');
+  expect(createAccount(admin, { ...input, username: ` ${username.toUpperCase()} `, role: 'admin' })).toMatchObject({
+    ok: false, fieldErrors: { username: 'Username is already taken.' },
+  });
+  expect(localStorage.getItem('writespace_users')).toBe(before);
+  expect(getSession()).toEqual(admin);
+});
+
 it.each(['displayName', 'username', 'password', 'role'])('rejects every missing/invalid required %s with no write', (field) => {
   const before = seed();
   for (const value of [undefined, null, 12, {}, [], '', ' \t\n']) {

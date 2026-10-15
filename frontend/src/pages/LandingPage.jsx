@@ -3,8 +3,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicNavbar } from '../components/PublicNavbar';
 import { BlogCard } from '../components/BlogCard';
-import { getPosts } from '../utils/storage';
-import { newestFirst } from '../utils/presentation';
+import { getPosts, getUsers } from '../utils/storage';
+import { newestFirst, resolveAuthorRole } from '../utils/presentation';
 
 const features = [
   { title: 'Write Freely', copy: 'Plain-text writing without distractions.', tint: 'bg-indigo-50' },
@@ -18,10 +18,12 @@ const features = [
  */
 export default function LandingPage({ session = null }) {
   const [posts, setPosts] = useState([]);
+  const [users, setUsers] = useState([]);
 
-  /** Read local posts after mount without repairing or writing stored values. */
+  /** Read local posts and users on mount without repairing or writing stored values. */
   useEffect(() => {
     setPosts(newestFirst(getPosts()).slice(0, 3));
+    setUsers(getUsers());
   }, []);
 
   return (
@@ -73,7 +75,12 @@ export default function LandingPage({ session = null }) {
           {posts.length ? (
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
               {posts.map((post, index) => (
-                <BlogCard key={index} post={post && typeof post === 'object' ? post : null} index={index} />
+                <BlogCard
+                  key={index}
+                  post={post && typeof post === 'object' ? post : null}
+                  index={index}
+                  authorRole={resolveAuthorRole(post, users)}
+                />
               ))}
             </div>
           ) : (
@@ -84,6 +91,10 @@ export default function LandingPage({ session = null }) {
         </section>
       </main>
       <footer className="bg-slate-800 px-6 py-10 text-slate-100">
+        <p className="mx-auto mb-6 max-w-6xl text-sm text-slate-100">
+          Local demo only. Passwords are stored in plaintext. Never use real passwords or sensitive data.
+          Browser records can be cleared or changed; there is no shared service, backup, or secure authorization.
+        </p>
         <div className="mx-auto flex max-w-6xl flex-col justify-between gap-6 md:flex-row">
           <p>
             © {new Date().getFullYear()} WriteSpace

@@ -1,13 +1,13 @@
 /** @module AdminDashboard Show browser-local metrics, recent posts and explicit administrator actions. */
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { ProtectedRoute } from '../components/ProtectedRoute';
 import { StatCard } from '../components/StatCard';
 import { BlogCard } from '../components/BlogCard';
 import { canMutatePost, isValidSession } from '../utils/auth';
 import { getAdminCounts, getValidPosts } from '../utils/accounts';
 import { getPosts, getUsers } from '../utils/storage';
-import { newestFirst } from '../utils/presentation';
+import { newestFirst, resolveAuthorRole } from '../utils/presentation';
 import { deletePost } from '../utils/posts';
 
 const explanations = {
@@ -17,7 +17,7 @@ const explanations = {
   'Total users': 'Stored writer-role (user) accounts only.',
 };
 
-/** Load local lists read-only and refresh only after a successful confirmed deletion.
+/** Load local lists read-only and honor collection navigation after deletion or authorization rejection.
  * @param {{session?: object|null}} props App-owned lowercase administrator identity.
  * @returns {import('react').ReactElement} Metrics, recent previews and navigation.
  */
@@ -25,6 +25,7 @@ export default function AdminDashboard({ session = null }) {
   const [posts, setPosts] = useState([]);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState('');
+  const navigate = useNavigate();
 
   /** Read browser-local data without repairing or changing stored records. */
   useEffect(() => {
@@ -37,9 +38,9 @@ export default function AdminDashboard({ session = null }) {
    */
   function handleDelete(id) {
     const result = deletePost(id, session, window.confirm('Delete this post? This cannot be undone.'));
-    if (result.ok) {
-      setPosts(getPosts());
+    if (result.ok || result.navigateTo) {
       setError('');
+      navigate(result.navigateTo);
     } else if (result.error) {
       setError(result.error);
     }
@@ -100,7 +101,7 @@ export default function AdminDashboard({ session = null }) {
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {recent.map((post, index) => (
               <div key={`${post.id}-${index}`} className="min-w-0">
-                <BlogCard post={post} index={index} />
+                <BlogCard post={post} index={index} authorRole={resolveAuthorRole(post, users)} />
                 {canMutatePost('edit', session, post) && (
                   <div className="mt-3 flex gap-3">
                     <Link to={`/edit/${encodeURIComponent(post.id)}`} className="button-secondary" aria-label={`Edit ${post.title}`}>

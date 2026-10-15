@@ -88,12 +88,12 @@ async function logoutToLogin(page, displayName) {
   await page.getByRole('button', { name: new RegExp(displayName) }).click();
   await page.getByRole('button', { name: 'Logout', exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
-  await page.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Public navigation', exact: true }).getByRole('link', { name: 'Login', exact: true }).click();
 }
 
 test('fixed admin signs in, creates user/admin accounts, validates duplicates and protects fixed/current accounts', async ({ page, browserErrors }) => {
   await page.goto('/');
-  await page.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Public navigation', exact: true }).getByRole('link', { name: 'Login', exact: true }).click();
   await login(page, 'admin', 'admin');
   await expect(page).toHaveURL(/\/admin$/);
   await expect(page.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toBeVisible();
@@ -133,6 +133,25 @@ test('fixed admin signs in, creates user/admin accounts, validates duplicates an
   const createdAdmin = data.users[1];
   expect(createdAdmin).toMatchObject({ username: 'local-admin', role: 'admin' });
   await expect(page.getByRole('list', { name: 'Accounts' })).not.toContainText('disposable-local-demo');
+
+  await logoutToLogin(page, 'Admin');
+  await login(page, 'local-writer', 'disposable-local-demo');
+  await expect(page).toHaveURL(/\/blogs$/);
+  await expect(page.getByRole('heading', { name: 'All Blogs', exact: true })).toBeVisible();
+  await expect(page.getByText('No blogs yet. Be the first to write one!', { exact: true })).toBeVisible();
+  await expect(page.getByRole('article')).toHaveCount(0);
+  const writerSession = { userId: createdWriter.id, username: 'local-writer', displayName: 'Created local-writer', role: 'user' };
+  expect((await stored(page)).session).toEqual(writerSession);
+  expect((await stored(page)).users).toEqual([createdWriter, createdAdmin]);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'All Blogs', exact: true })).toBeVisible();
+  expect((await stored(page)).session).toEqual(writerSession);
+  await logoutToLogin(page, 'Created local-writer');
+  await login(page, 'admin', 'admin');
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.getByRole('navigation', { name: 'Account navigation', exact: true }).getByRole('link', { name: 'Users', exact: true }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
 
   await deleteDialog(page, 'Delete local-writer', false);
   expect((await stored(page)).users).toEqual([createdWriter, createdAdmin]);
@@ -182,9 +201,20 @@ test('admin recent list caps at five and edits/deletes seeded writer posts throu
   await expect(page.getByRole('article')).toHaveCount(5);
   await deleteDialog(page, 'Delete Admin revised writer story', false);
   expect((await stored(page)).posts).toEqual([...posts.slice(0, 6), revised]);
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(page.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Admin revised writer story', exact: true })).toBeVisible();
   await deleteDialog(page, 'Delete Admin revised writer story', true);
   expect((await stored(page)).posts).toEqual(posts.slice(0, 6));
+  await expect(page).toHaveURL(/\/blogs$/);
+  await expect(page.getByRole('heading', { name: 'All Blogs', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Admin revised writer story', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Blog collection', exact: true }).getByRole('article')).toHaveCount(6);
+  await expect(page.getByRole('heading', { level: 3 })).toHaveText([
+    'Seed story 5', 'Seed story 4', 'Seed story 3', 'Seed story 2', 'Seed story 1', 'Seed story 0',
+  ]);
+  await page.getByRole('button', { name: /Admin/ }).click();
+  await page.getByRole('link', { name: 'Go to Dashboard', exact: true }).click();
   await expect(page.getByRole('heading', { level: 3 })).toHaveText([
     'Seed story 5', 'Seed story 4', 'Seed story 3', 'Seed story 2', 'Seed story 1',
   ]);
@@ -211,6 +241,127 @@ test('mobile admin navigates dashboard to users and back through explicit links'
   await page.screenshot({ path: 'test-results/administration-users-mobile.png', fullPage: true });
   await page.getByRole('link', { name: 'Back to Dashboard', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toBeVisible();
+  const menu = page.getByRole('button', { name: 'Open menu', exact: true });
+  await expect(menu).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('navigation', { name: 'Account navigation', exact: true })).toHaveCount(0);
+  await menu.click();
+  await expect(page.getByRole('button', { name: 'Close menu', exact: true })).toHaveAttribute('aria-expanded', 'true');
+  await page.getByRole('navigation', { name: 'Account navigation', exact: true }).getByRole('link', { name: 'Users', exact: true }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open menu', exact: true })).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('navigation', { name: 'Account navigation', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Back to Dashboard', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
+
+for (const raw of ['{bad', '{}', 'null', '[null,false,[],{}]']) {
+  test(`malformed users ${raw} safely render management without repairing stored data`, async ({ page, browserErrors }) => {
+    await page.addInitScript((users) => {
+      if (localStorage.getItem('writespace_users') === null) localStorage.setItem('writespace_users', users);
+    }, raw);
+    await page.goto('/login');
+    await login(page, 'admin', 'admin');
+    await expect(page).toHaveURL(/\/admin$/);
+    await page.getByRole('link', { name: 'Manage Users', exact: true }).click();
+    await expect(page).toHaveURL(/\/users$/);
+    await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Display Name', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete admin', exact: true })).toBeDisabled();
+    if (raw === '[null,false,[],{}]') {
+      await expect(page.getByRole('heading', { name: 'Unknown account', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Delete Unknown username', exact: true })).toBeDisabled();
+      await expect(page.getByRole('list', { name: 'Accounts', exact: true }).getByRole('listitem')).toHaveCount(2);
+    } else {
+      await expect(page.getByText('No stored accounts yet.', { exact: true })).toBeVisible();
+      await expect(page.getByRole('list', { name: 'Accounts', exact: true }).getByRole('listitem')).toHaveCount(1);
+    }
+    expect(await page.evaluate(() => localStorage.getItem('writespace_users'))).toBe(raw);
+    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => localStorage.getItem('writespace_users'))).toBe(raw);
+    expect(browserErrors).toEqual([]);
+  });
+}
+
+test('Create User reports account-key Storage.setItem failure without success, navigation or data changes', async ({ page, browserErrors }) => {
+  await seed(page);
+  await page.goto('/login');
+  await login(page, 'admin', 'admin');
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.getByRole('link', { name: 'Manage Users', exact: true }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  const before = await stored(page);
+  const usersBefore = await page.evaluate(() => localStorage.getItem('writespace_users'));
+  await fillAccount(page, 'quota-writer', 'user');
+  // Inject only the browser storage fault boundary; all validation and product services remain real.
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key === 'writespace_users') throw new DOMException('Demo storage quota', 'QuotaExceededError');
+      return original.call(this, key, value);
+    };
+  });
+  await page.getByRole('button', { name: 'Create User', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveText('Unable to save local data. Check browser storage and try again.');
+  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(page).toHaveURL(/\/users$/);
+  await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Username', { exact: true })).toHaveValue('quota-writer');
+  await expect(page.getByRole('heading', { name: 'Created quota-writer', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'Accounts', exact: true }).getByRole('listitem')).toHaveCount(2);
+  await expect(page.getByRole('heading', { name: 'Seed Writer', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('writespace_users'))).toBe(usersBefore);
+  expect(await stored(page)).toEqual(before);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Created quota-writer', exact: true })).toHaveCount(0);
+  expect(await stored(page)).toEqual(before);
+  expect(browserErrors).toEqual([]);
+});
+
+test('confirmed account deletion reports users-key Storage.setItem failure without success, navigation or removal', async ({ page, browserErrors }) => {
+  await seed(page);
+  await page.goto('/login');
+  await login(page, 'admin', 'admin');
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.getByRole('link', { name: 'Manage Users', exact: true }).click();
+  await expect(page).toHaveURL(/\/users$/);
+  await expect(page.getByRole('button', { name: 'Delete seed-writer', exact: true })).toBeEnabled();
+  const before = await stored(page);
+  const usersBefore = await page.evaluate(() => localStorage.getItem('writespace_users'));
+  try {
+    // Fault only the browser users-key write boundary; confirmation and product services remain real.
+    await page.evaluate(() => {
+      const original = Storage.prototype.setItem;
+      window.__restoreAccountDeleteStorage = () => {
+        Storage.prototype.setItem = original;
+        delete window.__restoreAccountDeleteStorage;
+      };
+      Storage.prototype.setItem = function (key, value) {
+        if (key === 'writespace_users') throw new DOMException('Demo storage quota', 'QuotaExceededError');
+        return original.call(this, key, value);
+      };
+    });
+    await deleteDialog(page, 'Delete seed-writer', true);
+    await expect(page.getByRole('alert')).toHaveText('Unable to save local data. Check browser storage and try again.');
+    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/users$/);
+    await expect(page.getByRole('heading', { name: 'Manage Users', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Admin Dashboard', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Seed Writer', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete seed-writer', exact: true })).toBeEnabled();
+    await expect(page.getByRole('list', { name: 'Accounts', exact: true }).getByRole('listitem')).toHaveCount(2);
+    expect(await page.evaluate(() => localStorage.getItem('writespace_users'))).toBe(usersBefore);
+    expect(await stored(page)).toEqual(before);
+  } finally {
+    await page.evaluate(() => window.__restoreAccountDeleteStorage?.());
+  }
+  expect(await page.evaluate(() => localStorage.getItem('writespace_users'))).toBe(usersBefore);
+  expect(await stored(page)).toEqual(before);
   expect(browserErrors).toEqual([]);
 });
 

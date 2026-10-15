@@ -1,25 +1,42 @@
 # WriteSpace
 
-Browser-local React 18 / JavaScript / Vite / Router 6 / Tailwind 3.4 writing demo. This slice implements **public discovery only**: landing, role-aware presentational links, real stored-post previews, and an explicit not-found destination. Identity, reading, authoring and administration pages are not implemented yet. Links keep their final contract destinations but currently reach the honest not-found page. No pretend feature screens are provided.
+A browser-local writing demo built with React 18, JavaScript/JSX, Vite, React Router DOM v6 and Tailwind CSS. Includes public discovery, local registration/login, persistent local sessions, guarded post collection/reader, owner-aware create/edit/delete, and administrator dashboard/account management.
 
-## Safety and persistence
+## Demo safety
 
-The upstream demo design intentionally uses unsafe fixed **admin / admin** credentials and **plaintext stored passwords** in the later identity slice. Never enter real passwords or sensitive information. This discovery build does not authenticate or create accounts.
+**Never use real/reused passwords or sensitive data.** Fixed demo administrator credentials are `admin` / `admin`. All account passwords are stored in plaintext in browser `localStorage`. Roles, sessions and ownership controls are bypassable client-side UX, not trusted authorization. There is no backend, API, database, shared publishing, sync, encryption, backup or remote recovery. Clearing storage or changing browser/profile/origin loses access to that local dataset. Concurrent tabs can overwrite one another.
 
-All product data is browser-local `localStorage`, user-editable and exposed to same-origin scripts. Clearing browser data, switching browser/profile/origin/port, private browsing, quota errors or denied storage can lose/hide data. There is no sync, backup, recovery, API, database, encryption or **server security**. Future route/role checks are client UX only, not trusted authorization. Hosting serves static files only.
+## Run locally
 
-## Local setup (Node 20.19+; pinned container uses Node 22.14)
-
-From workspace root:
+Requires Node 20.19+ (the image builds with pinned Node 22.14).
 
 ```sh
 cd frontend
 npm ci --no-bin-links
-# Optionally copy .env.example to .env using your editor or platform file manager.
 npm run dev
 ```
 
-Default dev URL: http://localhost:5173. `VITE_DEV_PORT` and `VITE_PREVIEW_PORT` configure strict dev/preview ports; dummy defaults are documented in `frontend/.env.example`. No client secrets or product network environment variables exist. Scripts use direct Node entry paths, not missing npm bin links. Fontsource Outfit (display) and Source Sans 3 (body) are bundled and self-hosted, not remotely requested.
+Dev URL: `http://localhost:5173`. Optional `.env` values are documented with runnable dummy defaults in `frontend/.env.example`: `VITE_DEV_PORT`, `VITE_PREVIEW_PORT`. These configure development servers, not product services or secrets. The static app needs no runtime credentials or API URL. Outfit and Source Sans 3 fonts are bundled/self-hosted.
+
+## Routes and behavior
+
+| Route | Behavior |
+|---|---|
+| `/` | Public hero, three feature cards, up to three newest local previews |
+| `/login`, `/register` | Guest-only; authenticated identities redirect to role home |
+| `/blogs`, `/blog/:id` | Authenticated collection and escaped plain-text reader |
+| `/write`, `/edit/:id` | Create for either role; edit for owner or administrator |
+| `/admin`, `/users` | Administrator-only dashboard and accounts |
+
+Writers go to `/blogs`, administrators to `/admin`, guests attempting protected routes to `/login`. Logout removes only `writespace_session` and returns `/`. Post deletion requires native confirmation and returns `/blogs`. Failed storage writes/removals do not claim success or erase the current form/view. Passwords are never listed or logged.
+
+The three local keys are `writespace_posts`, `writespace_users`, and `writespace_session`. Reads contain malformed JSON/access errors without repairing stored bytes. Mutations reread the current records and session before checking permissions.
+
+### Inferred decisions in this unattended build
+
+Username comparison is case-insensitive after trimming; `admin` is reserved. Names/usernames are trimmed, passwords remain exact. Blank/whitespace-only writing is rejected with no maximum text length. Administrator-created admin accounts can sign in locally. Cancel/back targets `/blogs`; guest login never resumes a preview. Dates use UTC English `MMM DD, YYYY`; invalid dates show `Unknown date`. Partial registration retains a saved account when session persistence fails and offers real sign-in recovery.
+
+Dashboard labels preserve the upstream case distinction: `Total Posts` counts displayable posts, `Total Users` counts stored accounts, `Total Admins` counts stored administrators plus the fixed demo identity, and `Total users` counts writer-role accounts. On-screen descriptions clarify these inferred formulas. The public hero uses a light Slate surface rather than the prohibited full-page rainbow gradient.
 
 ## Build and tests
 
@@ -29,68 +46,46 @@ From `frontend`:
 npm run build
 npm run preview
 npm test
-```
-
-Build directly: `node node_modules/vite/bin/vite.js build`. Discovery-only unit/component verification:
-
-```sh
-node node_modules/vitest/vitest.mjs run src/utils/storage.test.js src/utils/presentation.test.js src/components/PublicNavbar.test.jsx src/components/BlogCard.test.jsx src/components/Avatar.test.jsx src/pages/LandingPage.test.jsx
-```
-
-Vitest uses RTL/jsdom, real jsdom storage for normal paths, and explicit browser-boundary fault injection. It excludes `e2e`.
-
-**E2E files are written, NOT RUN by this discovery builder.** The parent owns review, browser execution, production build/container verification and commits. To execute later from frontend:
-
-```sh
 node node_modules/@playwright/test/cli.js install chromium
-node node_modules/@playwright/test/cli.js test
+npm run test:e2e
 ```
 
-Playwright uses JavaScript, one worker, a direct Vite webServer, `PLAYWRIGHT_BASE_URL` (default http://127.0.0.1:5173), automatic pre-navigation console/page-error capture and zero-error assertions. Only first entry uses `page.goto`; subsequent app routes use links. Browser fixtures seed real localStorage without mocking product calls. Screenshots, ariaSnapshot, HTML and computed/loaded-font data are attached for parent review. Current journeys expect unavailable destinations, not a simulated login/reader; the parent must update those assertions when later slices wire routes. Run against a local frontend HTTP base URL; the webServer port follows that URL.
+Scripts use direct Node package entries, so they work with bin links disabled. Vitest/React Testing Library/jsdom tests live beside modules. Playwright specs live in `frontend/e2e`, with one worker and automatic browser console/page-error failure capture. The config starts Vite unless a server is already available at `PLAYWRIGHT_BASE_URL` (default `http://127.0.0.1:5173`). To test the production preview:
 
-## Container and static hosting
+```sh
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
+```
 
-From workspace root:
+On the pipeline's Ubuntu 26.04 sandbox, Chromium required `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64` and standard browser libraries/fallback fonts. Normal supported systems do not need that override. Browser fault tests inject only native storage-boundary exceptions allowed by the LLD; auth/post/account operations remain real. Test profiles use disposable synthetic data.
+
+### Verified results
+
+- Unit/components: final full suite passed **729 tests across 22 files**, with zero failures or skips. Two logout race regressions failed before the source fix and passed afterward.
+- Browser journeys: all 54 cases verified. First full run passed 48 and exposed a logout routing race; source was fixed and all 39 cases in affected identity/authoring/admin specs passed on the targeted rerun. Discovery and reading had passed unchanged.
+- Read-only test critic: PASS, score 1.00, zero high failures after coverage/source fixes.
+- Production Vite build and Docker image build passed.
+- nginx smoke: root and six deep paths return SPA shell with 200; missing assets return 404; HTML `Cache-Control: no-cache`.
+- Accessibility-tree, HTML and computed-font preflight passed for desktop/mobile empty/populated/navigation states; screenshots saved for review.
+
+No backend/API/database integration tests apply. AWS deployment is owned by downstream DevOps; no live deployment or performance SLO is claimed here.
+
+## Static container and deployment
+
+From repository root:
 
 ```sh
 docker build -t writespace-local frontend
 docker run --rm -p 8080:80 writespace-local
-# In another terminal:
-curl -I http://localhost:8080/
-curl -I http://localhost:8080/blog/example
-curl -I http://localhost:8080/assets/missing.js
 ```
 
-Expected static behavior: root 200, direct client route 200 SPA shell, missing asset 404. Docker uses pinned Node → nginx images, `npm ci --no-bin-links`, and direct Node build. This builder did not run build/container smoke tests. Root `vercel.json` has only the mandated `/(.*)` → `/index.html` rewrite. For Vercel configure the project root as `frontend`, output as `dist`, and ensure the root rewrite is included in deployment configuration; no deployment is claimed here.
+The two-stage image serves only `frontend/dist` with nginx on port 80, bound to all interfaces. Health path is `/`. `frontend/nginx.conf` supplies SPA fallback, preserves missing-asset 404s, revalidates HTML and permits immutable hashed assets. No proxy to a phantom backend exists; no browser records live in the image. Delivery rollback restores code, not local data.
 
-## Extension conventions
+The pipeline target is AWS ECR → ECS frontend service → shared ALB → CloudFront. `vercel.json` retains exactly the upstream sole SPA rewrite; if using Vercel separately, configure project root/output/build for the nested `frontend` directory and ensure that rewrite is applied. No infrastructure account IDs or deployment credentials are embedded.
 
-- `main.jsx` mounts StrictMode and BrowserRouter exactly once; `App.jsx` owns routes only. No auth inference in discovery App. Future identity supplies validated nullable `session` props.
-- Pages default-export; shared components are named `PublicNavbar`, `BlogCard`, `Avatar`. `Avatar.jsx` also named-exports `getAvatar(role)` returning static JSX. Roles are case-sensitive `Admin` and `user`; unknown avatar role defaults to writer.
-- `PublicNavbar({ session = null })`: guest Login/Get Started; signed-in Go to Dashboard targets Admin `/admin` or user `/blogs`. `LandingPage({ session = null })`: Start Reading targets `/blogs` for either session role, otherwise `/login`; Get Started Free always `/register`.
-- `BlogCard({ post = null, index = 0 })`: title link to encoded `/blog/:id`, exact first 120 content characters, UTC date and author. Invalid IDs are non-clickable; unknown fields degrade without changing stored records. Four border accents repeat; invalid indices use indigo.
-- `storage.js` named exports `getPosts`, `savePosts`, `getUsers`, `saveUsers`, `readValue(key, fallback = null)`, `writeValue(key, value)`, `removeValue(key)`. List getters preserve valid arrays verbatim, otherwise `[]`. Writes/removes return `{ ok: true }` or `{ ok: false, error: string }`; errors are generic. Generic reads accept any parsed JSON; **later auth must validate session shape and fail closed**. Keys: `writespace_posts`, `writespace_users`; future auth owns `writespace_session` through generic functions. No render writes, silent repairs or module-cache state.
-- `presentation.js`: named `newestFirst(posts)` (copy, stable ties, invalid dates last), `formatDate(value)` (English UTC `MMM DD, YYYY` or `Unknown date`), `safeText(value, fallback = '')` (strings only, no object coercion).
-- Only useState/useEffect; JSX one element per line; module/function JSDoc and component PropTypes. Focus-visible controls and reduced-motion CSS. Light Slate hero, supplied indigo/violet accents, required em-dash empty copy and avatar emojis are documented upstream visual exceptions.
+## Dependency audit warning
 
-## Builder diagnostic status
+The current lockfile reports **12 advisories: 5 moderate, 5 high, 2 critical**. Runtime-only audit reports two moderate Router v6 advisories (`GHSA-wrjc-x8rr-h8h6`, `GHSA-337j-9hxr-rhxg`); remaining issues involve development tooling/transitive dependencies, including Vitest/Tinypool and Tailwind's glob/parser chain. Compatible Router v6, Vite and PostCSS patches were applied. Remaining recommended remediation requires major-version changes, including Router v7, conflicting with the specified v6 stack. Do not expose development/test servers publicly or treat this demo as production-secure; review and approve upgrades before broader distribution. The esbuild override pins a compatible executable version; use clean `npm ci` rather than copying dependency trees across systems.
 
-Dependency installation succeeded. Initial install reported 17 vulnerabilities; after refreshing Router/Vite/Vitest/Playwright/PostCSS pins, the final npm summary still reports **15 vulnerabilities (6 moderate, 7 high, 2 critical)**. This is unresolved: the parent should inspect the advisory details and update the dependency tree before distribution. No audit fix command was run.
+## Source organization
 
-The refreshed tree initially failed Vitest startup because the sandbox could not resolve esbuild 0.25.12's native executable. An optional-dependency reinstall did not resolve it. A compatible pinned `overrides.esbuild: 0.25.2` plus `npm install --no-bin-links --include=optional --ignore-scripts=false --foreground-scripts` ran postinstall and recovered execution. Do not copy node_modules across platforms; use the lockfile to install on the target platform.
-
-Final discovery diagnostics (Vitest 3.2.6, exit 0, no stderr):
-
-```text
-✓ src/utils/storage.test.js (41 tests)
-✓ src/utils/presentation.test.js (22 tests)
-✓ src/components/PublicNavbar.test.jsx (5 tests)
-✓ src/components/BlogCard.test.jsx (16 tests)
-✓ src/components/Avatar.test.jsx (5 tests)
-✓ src/pages/LandingPage.test.jsx (12 tests)
-Test Files  6 passed (6)
-Tests       101 passed (101)
-Duration    26.84s
-```
-
-No E2E, build, container, git, publishing or deployment execution is claimed. The parent owns final verification and commits; `todos.yaml` remains unchanged.
+`src/App.jsx` composes routes; `main.jsx` owns one StrictMode/BrowserRouter mount. Pages own transient state with `useState`/`useEffect`; components handle reusable presentation. `utils/storage.js` is the guarded native-storage boundary, `auth.js` identity/routes, `posts.js` post mutations, `accounts.js` admin mutations, and `presentation.js` safe text/date/sorting/author role. Stored roles are lowercase `admin`/`user`; avatar presentation adapts administrator treatment without changing record schemas.
