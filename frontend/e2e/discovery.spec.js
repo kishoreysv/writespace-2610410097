@@ -32,8 +32,8 @@ async function capturePreflight(page, testInfo, label) {
   expect(fonts.sourceSansLoaded).toBe(true);
 }
 
-/** Guest activation destinations intentionally land at the catch-all in discovery-only App. */
-test('guest navigation and CTAs reach honest unavailable destinations and recover Home', async ({ page }, testInfo) => {
+/** Guest activation destinations reach identity forms and recover Home through explicit links. */
+test('guest navigation and CTAs reach login or registration and recover Home', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1, name: 'WriteSpace' })).toBeVisible();
   await expect(page.getByText('Your thoughts. Your space. Beautifully simple.')).toBeVisible();
@@ -47,7 +47,7 @@ test('guest navigation and CTAs reach honest unavailable destinations and recove
     ['Public navigation', 'Get Started', '/register'],
     [null, 'Start Reading', '/login'],
     [null, 'Get Started Free', '/register'],
-    ['Footer navigation', 'All Blogs', '/blogs'],
+    ['Footer navigation', 'All Blogs', '/login'],
     ['Footer navigation', 'Login', '/login'],
     ['Footer navigation', 'Register', '/register'],
   ];
@@ -55,8 +55,7 @@ test('guest navigation and CTAs reach honest unavailable destinations and recove
     const scope = region ? page.getByRole('navigation', { name: region }) : page;
     await scope.getByRole('link', { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
-    await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
-    await expect(page.getByText(`Requested path: ${path}`, { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: path === '/login' ? 'Login' : 'Register', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Back to Home' }).click();
   }
   await page.getByRole('navigation', { name: 'Footer navigation' }).getByRole('link', { name: 'Home', exact: true }).click();
@@ -83,9 +82,9 @@ test('seeded browser-local previews are capped, escaped, persistent and linked',
   await expect(latest.getByText('Real local text 4 <script>alert(1)</script>', { exact: true })).toBeVisible();
   await capturePreflight(page, testInfo, 'desktop-populated');
   await latest.getByRole('link', { name: 'Browser note 4' }).click();
-  await expect(page).toHaveURL(/\/blog\/local-4$/);
-  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
-  await page.getByRole('link', { name: 'Back to Home' }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { name: 'Login', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'WriteSpace', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Browser note 4' })).toBeVisible();
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('writespace_posts')))).toEqual(records);
 });
@@ -115,6 +114,7 @@ test('mobile navigation opens, closes after activation and fits the viewport', a
   await capturePreflight(page, testInfo, 'mobile-menu-open');
   await nav.getByRole('link', { name: 'Login', exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByRole('heading', { name: 'Login', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Back to Home' }).click();
   await expect(nav).toBeHidden();
   await capturePreflight(page, testInfo, 'mobile-empty');

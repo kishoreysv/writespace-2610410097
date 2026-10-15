@@ -1,8 +1,14 @@
-/** @module App Discovery-only route composition; the router is owned by main.jsx. */
+/** @module App Compose public discovery and local identity; main.jsx owns the router. */
+import { useState } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import { Navbar } from './components/Navbar';
+import { ProtectedRoute } from './components/ProtectedRoute';
+import { getSession } from './utils/auth';
 
-/** Explain unavailable routes without pretending a future feature exists.
+/** Explain unmatched routes without pretending an unbuilt feature exists.
  * @returns {import('react').ReactElement} Useful not-found destination.
  */
 function NotFound() {
@@ -13,7 +19,7 @@ function NotFound() {
         Page not found
       </h1>
       <p className="mb-3 text-lg text-slate-600">
-        This discovery-only build does not include the requested page.
+        The requested page is not available. Return home to explore WriteSpace.
       </p>
       <p className="mb-8 break-words text-slate-600">
         Requested path: {location.pathname}
@@ -25,18 +31,40 @@ function NotFound() {
   );
 }
 
-/** Compose only the landing route and explicit catch-all destination.
- * @returns {import('react').ReactElement} Route tree.
+/** Restore validated identity before rendering routes, without a guest flash.
+ * @returns {import('react').ReactElement} Implemented routes and guarded catch-all.
  */
 export default function App() {
+  const [session, setSession] = useState(getSession);
+  // Discovery's existing presentation interface uses "Admin"; stored identity does not.
+  const landingSession = session?.role === 'admin' ? { ...session, role: 'Admin' } : session;
   return (
     <>
       <a href="#main-content" className="skip-link">
         Skip to content
       </a>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
-        <Route path="*" element={<NotFound />} />
+        <Route
+          path="/"
+          element={<LandingPage session={landingSession} onSessionChange={setSession} />}
+        />
+        <Route
+          path="/login"
+          element={<LoginPage session={session} onSessionChange={setSession} />}
+        />
+        <Route
+          path="/register"
+          element={<RegisterPage session={session} onSessionChange={setSession} />}
+        />
+        <Route
+          path="*"
+          element={
+            <ProtectedRoute session={session}>
+              <Navbar session={session} onSessionChange={setSession} />
+              <NotFound />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
     </>
   );
