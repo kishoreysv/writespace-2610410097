@@ -18,3 +18,5 @@ publish_manifest.yaml
 test_report.yaml
 graphify-out/cache/
 graphify-out/cost.json
+npm-debug.log*
+.vite/

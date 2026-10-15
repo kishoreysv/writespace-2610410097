@@ -1,0 +1,36 @@
+/** Global light Slate theme; supplied brand colors are carried by Tailwind tokens. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 248 250 252;
+    --surface: 255 255 255;
+    --foreground: 30 41 59;
+    --muted: 71 85 105;
+    --border: 226 232 240;
+  }
+  body { @apply m-0 bg-background font-sans text-foreground antialiased; }
+  h1, h2, h3, h4 { @apply font-display; }
+  a, button { touch-action: manipulation; }
+  :focus-visible { outline: 3px solid #4f46e5; outline-offset: 4px; }
+  ::selection { background: #e0e7ff; color: #1e293b; }
+}
+
+@layer components {
+  .hero-title { font-size: clamp(3rem, 9vw, 6rem); line-height: 1.1; }
+  .button-primary { @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-primary-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-primary-700; }
+  .button-secondary { @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-primary-200 bg-white px-6 py-3 font-semibold text-primary-700 hover:bg-primary-50; }
+  .skip-link { @apply fixed left-4 top-4 z-10 -translate-y-32 rounded-lg bg-white px-4 py-3 text-primary-700 shadow-md focus:translate-y-0; }
+  .blog-card { transition: transform 220ms ease-out, box-shadow 220ms ease-out; overflow-wrap: anywhere; }
+  .blog-card:hover { transform: translateY(-4px); box-shadow: 0 12px 30px rgb(30 41 59 / 0.08); }
+  .button-primary, .button-secondary { transition: background-color 200ms ease-out, transform 200ms ease-out; }
+  .button-primary:active, .button-secondary:active { transform: scale(0.98); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+  .blog-card:hover, .button-primary:active, .button-secondary:active { transform: none; }
+}
