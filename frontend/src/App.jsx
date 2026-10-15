@@ -1,9 +1,11 @@
-/** @module App Compose public discovery and local identity; main.jsx owns the router. */
+/** @module App Compose public discovery, local identity and guarded reading; main.jsx owns the router. */
 import { useState } from 'react';
 import { Link, Route, Routes, useLocation } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import Home from './pages/Home';
+import ReadBlog from './pages/ReadBlog';
 import { Navbar } from './components/Navbar';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { getSession } from './utils/auth';
@@ -55,6 +57,24 @@ export default function App() {
         <Route
           path="/register"
           element={<RegisterPage session={session} onSessionChange={setSession} />}
+        />
+        <Route
+          path="/blogs"
+          element={
+            <ProtectedRoute session={session}>
+              <Navbar session={session} onSessionChange={setSession} />
+              <Home />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/blog/:id"
+          element={
+            <ProtectedRoute session={session}>
+              <Navbar session={session} onSessionChange={setSession} />
+              <ReadBlog />
+            </ProtectedRoute>
+          }
         />
         <Route
           path="*"
