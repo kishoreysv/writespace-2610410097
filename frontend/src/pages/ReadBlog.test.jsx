@@ -6,7 +6,8 @@ import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { expect, it, vi } from 'vitest';
 import ReadBlog from './ReadBlog';
 import App from '../App';
-import { savePosts } from '../utils/storage';
+import { getPosts, savePosts } from '../utils/storage';
+import { setSession } from '../utils/auth';
 
 const writer = { userId: 'riley', username: 'riley', displayName: 'Riley', role: 'user' };
 
@@ -14,13 +15,15 @@ const writer = { userId: 'riley', username: 'riley', displayName: 'Riley', role:
  * @param {object} options Entry path, App selection and StrictMode.
  * @returns {object} RTL view.
  */
-function mount({ path = '/blog/one', app = false, strict = false } = {}) {
+function mount({ path = '/blog/one', app = false, strict = false, session = null } = {}) {
   const content = (
     <MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       {app ? <App /> : (
         <Routes>
-          <Route path="/blog/:id" element={<ReadBlog />} />
-          <Route path="/missing-param" element={<ReadBlog />} />
+          <Route path="/blog/:id" element={<ReadBlog session={session} />} />
+          <Route path="/missing-param" element={<ReadBlog session={session} />} />
+          <Route path="/blogs" element={<h1>Blogs destination</h1>} />
+          <Route path="/edit/:id" element={<h1>Edit destination</h1>} />
         </Routes>
       )}
     </MemoryRouter>
@@ -127,24 +130,26 @@ it('resolves changed params without stale content or another mount', async () =>
   expect(screen.queryByText('First body')).not.toBeInTheDocument();
 });
 
-it.each(['user', 'admin'])('renders one navbar, no mutation controls and stays inert in StrictMode for %s', (role) => {
-  savePosts([{ id: 'one', title: 'Inert reader', content: 'Read only', authorId: 'riley' }]);
+it.each(['user', 'admin'])('renders one navbar and authorized controls but stays inert in StrictMode for %s', (role) => {
+  savePosts([{ id: 'one', title: 'Inert reader', content: 'Read only', authorId: 'riley', authorName: 'Riley', createdAt: '2025-01-02T00:00:00.000Z' }]);
   window.localStorage.setItem('writespace_session', JSON.stringify({ ...writer, role }));
   const before = { ...window.localStorage };
   const setter = vi.spyOn(Storage.prototype, 'setItem');
   const remover = vi.spyOn(Storage.prototype, 'removeItem');
   const clear = vi.spyOn(Storage.prototype, 'clear');
+  const confirm = vi.spyOn(window, 'confirm');
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);
   const xhr = vi.spyOn(XMLHttpRequest.prototype, 'open');
   mount({ app: true, strict: true });
   expect(screen.getByText('Read only')).toBeInTheDocument();
   expect(screen.getAllByRole('banner')).toHaveLength(1);
-  expect(screen.queryByRole('button', { name: /edit|delete/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole('link', { name: /edit|delete/i })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/edit/one');
   expect(setter).not.toHaveBeenCalled();
   expect(remover).not.toHaveBeenCalled();
   expect(clear).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
   expect(fetcher).not.toHaveBeenCalled();
   expect(xhr).not.toHaveBeenCalled();
   expect({ ...window.localStorage }).toEqual(before);
@@ -172,4 +177,140 @@ it('leaves unmatched route behavior unchanged', () => {
   expect(screen.getByText('Requested path: /unknown')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Page not found' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', '/');
+});
+
+const ownedPost = { id: 'one', title: 'Owned post', content: 'Owned body', authorId: 'riley', authorName: 'Riley', createdAt: '2025-01-02T00:00:00.000Z' };
+const administrator = { userId: 'admin', username: 'admin', displayName: 'Admin', role: 'admin' };
+const nonOwner = { userId: 'other', username: 'other', displayName: 'Other', role: 'user' };
+
+it.each([writer, administrator])('shows authorized reader controls for $role and Edit follows its real link', async (session) => {
+  setSession(session);
+  savePosts([ownedPost]);
+  mount({ session });
+  expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', '/edit/one');
+  await userEvent.click(screen.getByRole('link', { name: 'Edit' }));
+  expect(screen.getByRole('heading', { name: 'Edit destination' })).toBeInTheDocument();
+  expect(getPosts()).toEqual([ownedPost]);
+});
+
+it.each([nonOwner, null, { ...writer, role: 'admin' }, { ...writer, username: 'forged' }])('hides mutation controls from non-owner/invalid/stale supplied session %s', (session) => {
+  setSession(session === nonOwner ? nonOwner : writer);
+  savePosts([ownedPost]);
+  const before = localStorage.getItem('writespace_posts');
+  mount({ session });
+  expect(screen.getByRole('heading', { name: 'Owned post' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Edit' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument();
+  expect(localStorage.getItem('writespace_posts')).toBe(before);
+});
+
+it('cancelled confirmation leaves the reader, storage and controls unchanged with zero writes', async () => {
+  setSession(writer);
+  savePosts([ownedPost]);
+  const before = localStorage.getItem('writespace_posts');
+  const setter = vi.spyOn(Storage.prototype, 'setItem');
+  const confirmation = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  mount({ session: writer });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(confirmation).toHaveBeenCalledWith('Delete this post? This cannot be undone.');
+  expect(screen.getByRole('heading', { name: 'Owned post' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(setter).not.toHaveBeenCalled();
+  expect(localStorage.getItem('writespace_posts')).toBe(before);
+});
+
+it.each([writer, administrator])('confirmed $role deletion persists only target removal and navigates to blogs', async (session) => {
+  setSession(session);
+  const unrelated = { ...ownedPost, id: 'two', authorId: 'other' };
+  savePosts([ownedPost, unrelated]);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  mount({ session });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('heading', { name: 'Blogs destination' })).toBeInTheDocument();
+  expect(getPosts()).toEqual([unrelated]);
+});
+
+it('failed confirmed deletion shows an alert, retains the post and does not navigate as success', async () => {
+  setSession(writer);
+  savePosts([ownedPost]);
+  const before = localStorage.getItem('writespace_posts');
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  mount({ session: writer });
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Unable to save local data.');
+  expect(screen.getByRole('heading', { name: 'Owned post' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
+  expect(localStorage.getItem('writespace_posts')).toBe(before);
+});
+
+it.each(['ownership', 'session', 'cleared', 'malformed'])('confirmed handler rejects changed %s after controls were rendered', async (change) => {
+  setSession(writer);
+  savePosts([ownedPost]);
+  mount({ session: writer });
+  vi.spyOn(window, 'confirm').mockImplementation(() => {
+    if (change === 'ownership') savePosts([{ ...ownedPost, authorId: 'other' }]);
+    if (change === 'session') setSession(nonOwner);
+    if (change === 'cleared') localStorage.removeItem('writespace_session');
+    if (change === 'malformed') localStorage.setItem('writespace_session', '{}');
+    return true;
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('heading', { name: 'Blogs destination' })).toBeInTheDocument();
+  expect(getPosts()).toEqual([change === 'ownership' ? { ...ownedPost, authorId: 'other' } : ownedPost]);
+});
+
+it('confirmed handler uses the current list and preserves a post added after rendering', async () => {
+  setSession(writer);
+  savePosts([ownedPost]);
+  mount({ session: writer });
+  const added = { ...ownedPost, id: 'later' };
+  vi.spyOn(window, 'confirm').mockImplementation(() => {
+    savePosts([ownedPost, added]);
+    return true;
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByText('Blogs destination')).toBeInTheDocument();
+  expect(getPosts()).toEqual([added]);
+});
+
+it('confirmed missing target reports Post not found without deleting unrelated current records', async () => {
+  setSession(writer);
+  savePosts([ownedPost]);
+  mount({ session: writer });
+  const unrelated = { ...ownedPost, id: 'later' };
+  vi.spyOn(window, 'confirm').mockImplementation(() => {
+    savePosts([unrelated]);
+    return true;
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Post not found');
+  expect(screen.getByRole('heading', { name: 'Owned post' })).toBeInTheDocument();
+  expect(getPosts()).toEqual([unrelated]);
+});
+
+it('confirmed malformed target fails safely without a success redirect', async () => {
+  setSession(writer);
+  const malformed = { ...ownedPost, createdAt: 'bad' };
+  savePosts([malformed]);
+  mount({ session: writer });
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Invalid post.');
+  expect(screen.getByText('Unknown date')).toBeInTheDocument();
+  expect(getPosts()).toEqual([malformed]);
+});
+
+it('real App confirmed deletion returns to the collection and keeps one Navbar', async () => {
+  setSession(writer);
+  savePosts([ownedPost, { ...ownedPost, id: 'remaining', title: 'Remaining post' }]);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  mount({ app: true });
+  await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+  expect(screen.getByRole('link', { name: 'Remaining post' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Owned post' })).not.toBeInTheDocument();
+  expect(screen.getAllByRole('banner')).toHaveLength(1);
+  expect(getPosts().map((post) => post.id)).toEqual(['remaining']);
 });

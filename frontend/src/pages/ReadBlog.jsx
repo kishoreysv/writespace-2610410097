@@ -1,20 +1,40 @@
 /** @module ReadBlog Resolve exact local IDs and render escaped, whitespace-preserving text. */
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { ProtectedRoute } from '../components/ProtectedRoute';
+import { canMutatePost } from '../utils/auth';
+import { deletePost } from '../utils/posts';
 import { Avatar } from '../components/Avatar';
 import { getPosts } from '../utils/storage';
 import { formatDate, safeText } from '../utils/presentation';
 
-/** Read local posts on mount and resolve the current route without coercing IDs.
+/** Read local posts and expose explicit controls only for a freshly authorized identity.
+ * @param {{session?: object|null}} props App-owned identity, rechecked during deletion.
  * @returns {import('react').ReactElement} Full article or recoverable not-found state.
  */
-export default function ReadBlog() {
+export default function ReadBlog({ session = null }) {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
+  const [error, setError] = useState('');
 
+  /** Read without repairing storage when the requested route changes. */
   useEffect(() => {
     setPosts(getPosts());
-  }, []);
+    setError('');
+  }, [id]);
+
+  /** Confirm before invoking the service, which re-reads target and session.
+   * Cancellation never writes; failures never navigate as a successful deletion.
+   */
+  function handleDelete() {
+    const result = deletePost(id, session, window.confirm('Delete this post? This cannot be undone.'));
+    if (result.ok || result.navigateTo) {
+      navigate(result.navigateTo, { replace: true });
+    } else if (result.error) {
+      setError(result.error);
+    }
+  }
 
   const post = typeof id === 'string' && id.trim()
     ? posts.find((entry) => (
@@ -50,6 +70,21 @@ export default function ReadBlog() {
           <div className="whitespace-pre-wrap break-words text-lg leading-relaxed text-slate-700">
             {safeText(post.content)}
           </div>
+          {canMutatePost('edit', session, post) && (
+            <div className="mt-8 flex flex-col gap-3 border-t border-slate-100 pt-6 md:flex-row">
+              <Link to={`/edit/${post.id}`} className="button-secondary">
+                Edit
+              </Link>
+              <button type="button" onClick={handleDelete} className="button-secondary text-red-700">
+                Delete
+              </button>
+            </div>
+          )}
+          {error && (
+            <p role="alert" className="mt-6 rounded-xl bg-red-50 p-4 text-red-700">
+              {error}
+            </p>
+          )}
         </article>
       ) : (
         <h1 className="font-display text-4xl font-bold text-slate-800">
@@ -59,3 +94,5 @@ export default function ReadBlog() {
     </main>
   );
 }
+
+ReadBlog.propTypes = { session: ProtectedRoute.propTypes.session };
